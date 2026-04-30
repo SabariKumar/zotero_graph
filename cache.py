@@ -11,6 +11,7 @@ def init_db(db_path: Path) -> sqlite3.Connection:
             zotero_key      TEXT PRIMARY KEY,
             openalex_id     TEXT,
             doi             TEXT,
+            url             TEXT,
             title           TEXT NOT NULL,
             abstract        TEXT,
             year            INTEGER,
@@ -39,15 +40,16 @@ def init_db(db_path: Path) -> sqlite3.Connection:
 def upsert_paper(conn: sqlite3.Connection, paper: dict) -> None:
     conn.execute("""
         INSERT INTO papers (
-            zotero_key, openalex_id, doi, title, abstract, year,
+            zotero_key, openalex_id, doi, url, title, abstract, year,
             domain_tag, content_tags, openalex_topics, cited_by_count, fetched_at
         ) VALUES (
-            :zotero_key, :openalex_id, :doi, :title, :abstract, :year,
+            :zotero_key, :openalex_id, :doi, :url, :title, :abstract, :year,
             :domain_tag, :content_tags, :openalex_topics, :cited_by_count, :fetched_at
         )
         ON CONFLICT(zotero_key) DO UPDATE SET
             openalex_id     = COALESCE(excluded.openalex_id, openalex_id),
             doi             = COALESCE(excluded.doi, doi),
+            url             = COALESCE(excluded.url, url),
             title           = excluded.title,
             abstract        = COALESCE(excluded.abstract, abstract),
             year            = COALESCE(excluded.year, year),
@@ -60,6 +62,7 @@ def upsert_paper(conn: sqlite3.Connection, paper: dict) -> None:
         "zotero_key":      paper["zotero_key"],
         "openalex_id":     paper.get("openalex_id"),
         "doi":             paper.get("doi"),
+        "url":             paper.get("url"),
         "title":           paper["title"],
         "abstract":        paper.get("abstract"),
         "year":            paper.get("year"),
@@ -88,6 +91,32 @@ def upsert_citation_edge(conn: sqlite3.Connection, source_key: str, target_key: 
         "INSERT OR IGNORE INTO citation_edges (source_key, target_key) VALUES (?, ?)",
         (source_key, target_key),
     )
+
+
+def update_paper_openalex(
+    conn: sqlite3.Connection,
+    zotero_key: str,
+    *,
+    openalex_id: str,
+    openalex_topics: list,
+    cited_by_count: int | None,
+    fetched_at: str,
+) -> None:
+    """Update only the OpenAlex-derived columns for an existing paper row."""
+    conn.execute("""
+        UPDATE papers
+        SET openalex_id     = ?,
+            openalex_topics = ?,
+            cited_by_count  = ?,
+            fetched_at      = ?
+        WHERE zotero_key = ?
+    """, (
+        openalex_id,
+        json.dumps(openalex_topics),
+        cited_by_count,
+        fetched_at,
+        zotero_key,
+    ))
 
 
 def get_all_citation_edges(conn: sqlite3.Connection) -> list[tuple[str, str]]:

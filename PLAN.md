@@ -78,11 +78,31 @@ If no automatic tags exist, both fields are empty.
 - [ ] Insert matching pairs into `citation_edges`
 - [ ] Call `set_meta(conn, "last_openalex_sync", datetime.now().isoformat())`
 
-**Rate limit:** Use `asyncio` + `httpx.AsyncClient` with a semaphore(5) and 0.1 s sleep
-between batches. Wrap in a sync-friendly `asyncio.run()` entrypoint.
+**Rate limit:** Use `asyncio` + `httpx.AsyncClient` with `asyncio.gather` across all
+batches (not a sequential loop) with a shared `Semaphore(5)` to cap concurrency.
+Wrap in a sync-friendly `asyncio.run()` entrypoint.
+
+**Implementation note — targeted update:** Use `update_paper_openalex()` (a bare `UPDATE`
+on the four OpenAlex columns) rather than `upsert_paper()` for the enrichment step.
+`upsert_paper` always overwrites `title`; passing an empty OpenAlex title would silently
+erase the title fetched from Zotero.
 
 **Verification:** Run sync on a small set; confirm `openalex_id` populated, `citation_edges`
 has rows for papers that cite each other.
+
+**Finding — arXiv DOI coverage (discovered 2026-04-30):**
+OpenAlex does not reliably index preprints under their arXiv DOI (`10.48550/arXiv.*`).
+Confirmed via live API testing:
+- Papers with real journal DOIs (Nature, ACL, IEEE CVPR, etc.) match 100% via the
+  `filter=doi:` parameter.
+- Papers that exist only as arXiv preprints (e.g. "Attention Is All You Need", which
+  has no formal NeurIPS proceedings DOI) are stored under a different identifier
+  (e.g. `10.65215/...`) and are not found via the arXiv DOI filter.
+- The constructed arXiv DOI fallback (`10.48550/arXiv.{id}`) is still worth attempting
+  — some arXiv papers do resolve — but coverage will be partial.
+- **Mitigation:** the title-search fallback in the stretch goals ("Improved identifier
+  resolution") is the correct fix for preprint-heavy libraries. For v1, unmatched
+  papers appear as nodes without citation edges, which is acceptable.
 
 ---
 
