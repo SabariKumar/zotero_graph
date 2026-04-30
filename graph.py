@@ -33,12 +33,28 @@ def build_graph(
     tag_query: str | None = None,
     min_edge_weight: float = MIN_EDGE_WEIGHT,
 ) -> tuple[nx.Graph, dict[str, int]]:
-    """Build a weighted NetworkX graph from the cached papers.
+    """
+    Build a weighted undirected NetworkX graph from the cached papers.
 
-    Nodes  — one per paper passing the active filters.
-    Edges  — tag-Jaccard (semantic) + citation bonus (structural).
+    Edges are created by two independent mechanisms and then combined:
+    - Tag-Jaccard edges: emitted when two papers share enough content tags
+      (Jaccard ≥ MIN_JACCARD). Weight = ALPHA * jaccard.
+    - Citation bonus: added to any edge (creating one if absent) when one
+      paper cites the other in OpenAlex. Bonus = BETA * CITATION_BONUS.
 
-    Returns (G, community_map) where community_map maps node id → int.
+    Composite edges below min_edge_weight are dropped before Louvain runs.
+    Louvain community IDs are written back as node attributes.
+
+    Params:
+        conn:            sqlite3.Connection : open database connection.
+        domain_filter:   list[str] | None  : if set, keep only papers whose
+                                             domain_tag is in this list.
+        year_min:        int | None         : inclusive lower bound on year.
+        year_max:        int | None         : inclusive upper bound on year.
+        tag_query:       str | None         : substring match against all tags.
+        min_edge_weight: float              : edges below this weight are dropped.
+    Returns:
+        tuple (nx.Graph, dict[str, int]) where the dict maps zotero_key → community_id.
     """
     papers = get_all_papers(conn)
     papers = _apply_filters(papers, domain_filter, year_min, year_max, tag_query)
@@ -57,14 +73,12 @@ def build_graph(
             tags=p.get("content_tags") or [],
             year=p.get("year"),
             cited_by_count=p.get("cited_by_count") or 0,
-            community=0,  # filled in after Louvain
+            community=0,
         )
 
     # --- Tag-Jaccard edges ---
     keys = list(G.nodes)
-    tag_sets = {
-        k: frozenset(G.nodes[k]["tags"]) for k in keys
-    }
+    tag_sets = {k: frozenset(G.nodes[k]["tags"]) for k in keys}
 
     for i in range(len(keys)):
         for j in range(i + 1, len(keys)):
@@ -91,10 +105,7 @@ def build_graph(
             )
 
     # --- Drop weak edges ---
-    weak = [
-        (u, v) for u, v, d in G.edges(data=True)
-        if d["weight"] < min_edge_weight
-    ]
+    weak = [(u, v) for u, v, d in G.edges(data=True) if d["weight"] < min_edge_weight]
     G.remove_edges_from(weak)
 
     # --- Louvain community detection ---
@@ -107,7 +118,15 @@ def build_graph(
 
 
 def graph_stats(G: nx.Graph) -> dict:
-    """Return summary statistics for the sidebar."""
+    """
+    Return summary statistics for the current graph view.
+
+    Params:
+        G: nx.Graph : graph returned by build_graph().
+    Returns:
+        dict with keys: n_papers (int), n_edges (int), n_communities (int),
+        top_tags (list[tuple[str, int]] top-10 by frequency), citation_edges (int).
+    """
     all_tags: list[str] = []
     for _, data in G.nodes(data=True):
         all_tags.extend(data.get("tags") or [])
@@ -146,9 +165,24 @@ def render_pyvis(
     *,
     show_labels: bool = False,
 ) -> Path:
-    """Render the graph to an interactive HTML file via PyVis.
+    """
+    Render the graph to a self-contained interactive HTML file via PyVis.
 
-    If output_path is None a temporary file is created. Returns the path.
+    Node color encodes Louvain community (tab20 palette, cycling if > 20).
+    Node size is log-scaled on cited_by_count so highly-cited papers are
+    visually prominent without drowning out low-citation nodes. Citation edges
+    are rendered in amber; tag-only edges in grey, both with opacity scaled to
+    edge weight.
+
+    Params:
+        G:           nx.Graph    : graph returned by build_graph().
+        output_path: Path | None : destination for the HTML file. A temp file
+                                   is created if None.
+        show_labels: bool        : if True, render the truncated title as a node
+                                   label; if False, use a single space (cleaner
+                                   for large graphs).
+    Returns:
+        Path to the written HTML file.
     """
     if output_path is None:
         tmp = tempfile.NamedTemporaryFile(
@@ -172,7 +206,6 @@ def render_pyvis(
         damping=0.4,
     )
 
-    # --- Nodes ---
     community_ids = sorted({d["community"] for _, d in G.nodes(data=True)})
     color_map = {c: _PALETTE[i % len(_PALETTE)] for i, c in enumerate(community_ids)}
 
@@ -182,23 +215,16 @@ def render_pyvis(
         tooltip = _node_tooltip(data)
         label = (data.get("label") or node_id) if show_labels else " "
 
-        net.add_node(
-            node_id,
-            label=label,
-            title=tooltip,
-            color=color,
-            size=size,
-        )
+        net.add_node(node_id, label=label, title=tooltip, color=color, size=size)
 
-    # --- Edges ---
     for u, v, data in G.edges(data=True):
         weight = data.get("weight", 0.0)
         citation = data.get("citation", False)
-        # Citation edges get a slightly warmer tint
-        if citation:
-            color = f"rgba(255,180,80,{min(weight, 1.0):.2f})"
-        else:
-            color = f"rgba(200,200,200,{min(weight, 1.0):.2f})"
+        color = (
+            f"rgba(255,180,80,{min(weight, 1.0):.2f})"
+            if citation
+            else f"rgba(200,200,200,{min(weight, 1.0):.2f})"
+        )
         net.add_edge(u, v, color=color, width=max(1, weight * 4), title=f"weight={weight:.2f}")
 
     net.save_graph(str(output_path))
@@ -210,16 +236,41 @@ def render_pyvis(
 # ---------------------------------------------------------------------------
 
 def _jaccard(a: frozenset, b: frozenset) -> float:
+    """
+    Compute the Jaccard similarity between two frozensets.
+
+    Params:
+        a: frozenset : first tag set.
+        b: frozenset : second tag set.
+    Returns:
+        float in [0, 1]; 0.0 when both sets are empty.
+    """
     if not a and not b:
         return 0.0
     return len(a & b) / len(a | b)
 
 
 def _node_size(cited_by_count: int) -> float:
+    """
+    Map a citation count to a PyVis node size using a log scale.
+
+    Params:
+        cited_by_count: int : total citation count from OpenAlex (0 if unknown).
+    Returns:
+        float node size in PyVis units (minimum 10).
+    """
     return 10 + 5 * math.log1p(cited_by_count)
 
 
 def _node_tooltip(data: dict) -> str:
+    """
+    Build an HTML tooltip string for a graph node.
+
+    Params:
+        data: dict : node attribute dict from G.nodes(data=True).
+    Returns:
+        str HTML snippet displayed on hover in the PyVis graph.
+    """
     tags = (data.get("tags") or [])[:5]
     tag_str = ", ".join(tags) if tags else "—"
     year = data.get("year") or "?"
@@ -240,6 +291,23 @@ def _apply_filters(
     year_max: int | None,
     tag_query: str | None,
 ) -> list[dict]:
+    """
+    Apply sidebar filters to the full paper list.
+
+    Filters are AND-combined; papers with a missing year field are treated as
+    year=0 for year_min and year=9999 for year_max to avoid silently excluding
+    undated papers from one-sided range filters.
+
+    Params:
+        papers:        list[dict]       : all papers from get_all_papers().
+        domain_filter: list[str] | None : allowlist of domain_tag values.
+        year_min:      int | None       : inclusive lower year bound.
+        year_max:      int | None       : inclusive upper year bound.
+        tag_query:     str | None       : substring matched against all tags
+                                         (domain and content, case-insensitive).
+    Returns:
+        list[dict] subset of papers passing all active filters.
+    """
     out = papers
     if domain_filter:
         out = [p for p in out if p.get("domain_tag") in domain_filter]

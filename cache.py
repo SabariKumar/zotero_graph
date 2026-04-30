@@ -4,6 +4,18 @@ from pathlib import Path
 
 
 def init_db(db_path: Path) -> sqlite3.Connection:
+    """
+    Create the SQLite database and return an open connection.
+
+    Creates the three tables (papers, citation_edges, meta) if they do not
+    already exist. Sets row_factory to sqlite3.Row so callers receive
+    dict-like rows without a separate conversion step.
+
+    Params:
+        db_path: Path : absolute path to the SQLite file (created if absent).
+    Returns:
+        sqlite3.Connection with row_factory set to sqlite3.Row.
+    """
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     conn.executescript("""
@@ -38,6 +50,24 @@ def init_db(db_path: Path) -> sqlite3.Connection:
 
 
 def upsert_paper(conn: sqlite3.Connection, paper: dict) -> None:
+    """
+    Insert or update a paper row using COALESCE-safe conflict resolution.
+
+    On conflict, every column except title and fetched_at is updated only if
+    the incoming value is non-NULL, so a partial update (e.g. adding only the
+    DOI) never overwrites existing data with NULL. title and fetched_at always
+    overwrite because they reflect the latest Zotero state.
+
+    content_tags and openalex_topics must be provided as Python lists; they
+    are serialised to JSON before insertion.
+
+    Params:
+        conn:  sqlite3.Connection : open database connection.
+        paper: dict               : must contain 'zotero_key' and 'title';
+                                    all other keys are optional.
+    Returns:
+        None
+    """
     conn.execute("""
         INSERT INTO papers (
             zotero_key, openalex_id, doi, url, title, abstract, year,
@@ -74,25 +104,6 @@ def upsert_paper(conn: sqlite3.Connection, paper: dict) -> None:
     })
 
 
-def get_all_papers(conn: sqlite3.Connection) -> list[dict]:
-    rows = conn.execute("SELECT * FROM papers").fetchall()
-    return [_deserialize(dict(r)) for r in rows]
-
-
-def get_papers_missing_openalex(conn: sqlite3.Connection) -> list[dict]:
-    rows = conn.execute(
-        "SELECT * FROM papers WHERE openalex_id IS NULL"
-    ).fetchall()
-    return [_deserialize(dict(r)) for r in rows]
-
-
-def upsert_citation_edge(conn: sqlite3.Connection, source_key: str, target_key: str) -> None:
-    conn.execute(
-        "INSERT OR IGNORE INTO citation_edges (source_key, target_key) VALUES (?, ?)",
-        (source_key, target_key),
-    )
-
-
 def update_paper_openalex(
     conn: sqlite3.Connection,
     zotero_key: str,
@@ -102,7 +113,22 @@ def update_paper_openalex(
     cited_by_count: int | None,
     fetched_at: str,
 ) -> None:
-    """Update only the OpenAlex-derived columns for an existing paper row."""
+    """
+    Update only the four OpenAlex-derived columns for an existing paper row.
+
+    Used instead of upsert_paper during OpenAlex enrichment to avoid
+    overwriting the Zotero title with a potentially blank OpenAlex title.
+
+    Params:
+        conn:            sqlite3.Connection : open database connection.
+        zotero_key:      str                : primary key of the row to update.
+        openalex_id:     str                : OpenAlex work ID (e.g. 'W2963403868').
+        openalex_topics: list               : list of topic dicts {id, name, score}.
+        cited_by_count:  int | None         : total citation count from OpenAlex.
+        fetched_at:      str                : ISO timestamp of the fetch.
+    Returns:
+        None
+    """
     conn.execute("""
         UPDATE papers
         SET openalex_id     = ?,
@@ -119,12 +145,80 @@ def update_paper_openalex(
     ))
 
 
+def get_all_papers(conn: sqlite3.Connection) -> list[dict]:
+    """
+    Return all rows from the papers table as deserialised dicts.
+
+    JSON columns (content_tags, openalex_topics) are decoded to Python lists.
+
+    Params:
+        conn: sqlite3.Connection : open database connection.
+    Returns:
+        list[dict] where each dict mirrors the papers table schema.
+    """
+    rows = conn.execute("SELECT * FROM papers").fetchall()
+    return [_deserialize(dict(r)) for r in rows]
+
+
+def get_papers_missing_openalex(conn: sqlite3.Connection) -> list[dict]:
+    """
+    Return papers that have not yet been matched to an OpenAlex work.
+
+    Params:
+        conn: sqlite3.Connection : open database connection.
+    Returns:
+        list[dict] of paper rows where openalex_id IS NULL.
+    """
+    rows = conn.execute(
+        "SELECT * FROM papers WHERE openalex_id IS NULL"
+    ).fetchall()
+    return [_deserialize(dict(r)) for r in rows]
+
+
+def upsert_citation_edge(conn: sqlite3.Connection, source_key: str, target_key: str) -> None:
+    """
+    Insert a directed citation edge, silently ignoring duplicates.
+
+    Only in-library edges (both keys present in the papers table) should be
+    inserted; enforcement is left to the caller.
+
+    Params:
+        conn:       sqlite3.Connection : open database connection.
+        source_key: str                : zotero_key of the citing paper.
+        target_key: str                : zotero_key of the cited paper.
+    Returns:
+        None
+    """
+    conn.execute(
+        "INSERT OR IGNORE INTO citation_edges (source_key, target_key) VALUES (?, ?)",
+        (source_key, target_key),
+    )
+
+
 def get_all_citation_edges(conn: sqlite3.Connection) -> list[tuple[str, str]]:
+    """
+    Return all in-library citation edges as (source_key, target_key) pairs.
+
+    Params:
+        conn: sqlite3.Connection : open database connection.
+    Returns:
+        list[tuple[str, str]] of (source_key, target_key) pairs.
+    """
     rows = conn.execute("SELECT source_key, target_key FROM citation_edges").fetchall()
     return [(r[0], r[1]) for r in rows]
 
 
 def set_meta(conn: sqlite3.Connection, key: str, value: str) -> None:
+    """
+    Upsert a key-value pair in the meta table.
+
+    Params:
+        conn:  sqlite3.Connection : open database connection.
+        key:   str                : metadata key (e.g. 'last_zotero_sync').
+        value: str                : metadata value.
+    Returns:
+        None
+    """
     conn.execute(
         "INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
         (key, value),
@@ -132,15 +226,46 @@ def set_meta(conn: sqlite3.Connection, key: str, value: str) -> None:
 
 
 def get_meta(conn: sqlite3.Connection, key: str) -> str | None:
+    """
+    Retrieve a metadata value by key, returning None if absent.
+
+    Params:
+        conn: sqlite3.Connection : open database connection.
+        key:  str                : metadata key to look up.
+    Returns:
+        str value if the key exists, otherwise None.
+    """
     row = conn.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
     return row[0] if row else None
 
 
 def commit(conn: sqlite3.Connection) -> None:
+    """
+    Commit the current transaction.
+
+    Callers batch multiple writes before calling commit() once, rather than
+    auto-committing per row, for performance.
+
+    Params:
+        conn: sqlite3.Connection : open database connection.
+    Returns:
+        None
+    """
     conn.commit()
 
 
 def _deserialize(row: dict) -> dict:
+    """
+    Decode JSON-serialised list columns in a paper row dict in place.
+
+    content_tags is decoded to a list (defaulting to []); openalex_topics is
+    decoded to a list (defaulting to None when absent).
+
+    Params:
+        row: dict : raw paper row with JSON strings for list columns.
+    Returns:
+        dict with content_tags and openalex_topics as Python objects.
+    """
     for field in ("content_tags", "openalex_topics"):
         if row.get(field) is not None:
             row[field] = json.loads(row[field])

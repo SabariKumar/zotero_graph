@@ -7,6 +7,7 @@ Run with:  pixi run start
 import sqlite3
 
 import streamlit as st
+from streamlit_javascript import st_javascript
 
 from cache import get_all_papers, init_db
 from config import DB_PATH, MIN_EDGE_WEIGHT
@@ -27,25 +28,33 @@ st.set_page_config(
 # Helper functions  (defined before use)
 # ---------------------------------------------------------------------------
 
+_LS_KEY = "zotero_selected_node"  # localStorage key shared with the PyVis iframe
+
+
 def _inject_click_handler(html: str) -> str:
-    """Inject a JS selectNode listener that postMessages the node ID to the
-    Streamlit parent frame. The info panel (Step 8) will listen for this."""
-    script = """
+    """Inject selectNode/deselectNode listeners into the PyVis HTML.
+
+    On click, writes the node ID to localStorage (same-origin, readable by the
+    st_javascript poller below) and also fires a postMessage for any future
+    listeners.
+    """
+    script = f"""
 <script>
-network.on("selectNode", function(params) {
-    if (params.nodes.length > 0) {
+network.on("selectNode", function(params) {{
+    if (params.nodes.length > 0) {{
+        var nodeId = String(params.nodes[0]);
+        localStorage.setItem("{_LS_KEY}", nodeId);
         window.parent.postMessage(
-            {type: "zotero_node_selected", nodeId: params.nodes[0]},
-            "*"
+            {{type: "zotero_node_selected", nodeId: nodeId}}, "*"
         );
-    }
-});
-network.on("deselectNode", function() {
+    }}
+}});
+network.on("deselectNode", function() {{
+    localStorage.removeItem("{_LS_KEY}");
     window.parent.postMessage(
-        {type: "zotero_node_selected", nodeId: null},
-        "*"
+        {{type: "zotero_node_selected", nodeId: null}}, "*"
     );
-});
+}});
 </script>
 """
     return html.replace("</body>", script + "\n</body>")
@@ -84,40 +93,46 @@ def _render_paper_card(p: dict) -> None:
 
 
 def _render_info_panel(G, paper_map: dict[str, dict]) -> None:
-    """Sidebar-selectbox driven info panel (reliable v1 approach).
-    Step 8 will augment this with JS-based node click selection.
+    """Info panel driven by both graph node clicks and a dropdown fallback.
+
+    Node clicks update st.session_state.selected_key (via localStorage poller),
+    which pre-selects the matching entry in the dropdown and renders the card.
+    The dropdown also works standalone when no node has been clicked.
     """
     visible_keys = [k for k in G.nodes if k in paper_map]
     if not visible_keys:
         st.caption("No papers in current view.")
         return
 
-    # Sort by title for a stable list
     visible_keys.sort(key=lambda k: paper_map[k]["title"])
     title_to_key = {paper_map[k]["title"][:70]: k for k in visible_keys}
     options = ["— select a paper —"] + list(title_to_key.keys())
 
-    # Pre-select if session state holds a key (set by JS click handler in Step 8)
+    # If a node was clicked, pre-select it in the dropdown
     default_idx = 0
-    if st.session_state.get("selected_key") in title_to_key.values():
-        sel_key = st.session_state["selected_key"]
-        sel_title = next((t for t, k in title_to_key.items() if k == sel_key), None)
-        if sel_title and sel_title in options:
-            default_idx = options.index(sel_title)
+    clicked = st.session_state.get("selected_key")
+    if clicked and clicked in paper_map:
+        clicked_title = paper_map[clicked]["title"][:70]
+        if clicked_title in options:
+            default_idx = options.index(clicked_title)
 
     chosen_title = st.selectbox(
         "Select paper",
         options=options,
         index=default_idx,
         label_visibility="collapsed",
+        key="paper_selectbox",
     )
 
     if chosen_title == "— select a paper —":
-        st.caption("Select a paper from the dropdown or click a node in the graph.")
+        st.caption("Click a node in the graph or select from the dropdown.")
         return
 
     key = title_to_key.get(chosen_title)
     if key and key in paper_map:
+        # Sync session state with manual dropdown selection too
+        if key != st.session_state.get("selected_key"):
+            st.session_state.selected_key = key
         _render_paper_card(paper_map[key])
 
 
@@ -248,6 +263,20 @@ with graph_col:
         html_content = _inject_click_handler(html_path.read_text())
         html_path.unlink(missing_ok=True)  # clean up temp file
         st.components.v1.html(html_content, height=760, scrolling=False)
+
+        # --- localStorage poller ---
+        # Reads the node ID written by the PyVis click handler. Both the PyVis
+        # iframe and this st_javascript call share the same origin (localhost),
+        # so localStorage is visible to both.
+        clicked_key = st_javascript(
+            f"localStorage.getItem('{_LS_KEY}') || ''",
+        )
+        if clicked_key and clicked_key != st.session_state.get("selected_key"):
+            st.session_state.selected_key = clicked_key
+            st.rerun()
+        elif not clicked_key and st.session_state.get("selected_key"):
+            # Node was deselected — clear without rerunning (avoids loop)
+            st.session_state.selected_key = None
 
 with info_col:
     st.subheader("Paper detail")
