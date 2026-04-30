@@ -9,6 +9,7 @@ test = "pytest tests/ -v"
 
 [dependencies]
 python = ">=3.11"
+pre-commit = ">=4.6.0,<5"
 
 [pypi-dependencies]
 pyzotero = ">=1.11.1,<2"
