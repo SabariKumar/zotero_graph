@@ -1,0 +1,20 @@
+[workspace]
+name = "zotero_graph"
+channels = ["conda-forge"]
+platforms = ["osx-arm64"]
+
+[tasks]
+start = "streamlit run app.py"
+
+[dependencies]
+python = ">=3.11"
+
+[pypi-dependencies]
+pyzotero = ">=1.11.1,<2"
+httpx = ">=0.28.1,<0.29"
+networkx = ">=3.6.1,<4"
+python-louvain = ">=0.16,<0.17"
+pyvis = ">=0.3.2,<0.4"
+streamlit = ">=1.57.0,<2"
+python-dotenv = ">=1.2.2,<2"
+matplotlib = ">=3.10.9,<4"
