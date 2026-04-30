@@ -143,6 +143,8 @@ _PALETTE = [
 def render_pyvis(
     G: nx.Graph,
     output_path: Path | None = None,
+    *,
+    show_labels: bool = False,
 ) -> Path:
     """Render the graph to an interactive HTML file via PyVis.
 
@@ -178,10 +180,11 @@ def render_pyvis(
         size = _node_size(data.get("cited_by_count") or 0)
         color = color_map.get(data.get("community", 0), _PALETTE[0])
         tooltip = _node_tooltip(data)
+        label = (data.get("label") or node_id) if show_labels else " "
 
         net.add_node(
             node_id,
-            label=data.get("label") or node_id,
+            label=label,
             title=tooltip,
             color=color,
             size=size,
