@@ -68,7 +68,8 @@ def upsert_paper(conn: sqlite3.Connection, paper: dict) -> None:
     Returns:
         None
     """
-    conn.execute("""
+    conn.execute(
+        """
         INSERT INTO papers (
             zotero_key, openalex_id, doi, url, title, abstract, year,
             domain_tag, content_tags, openalex_topics, cited_by_count, fetched_at
@@ -88,20 +89,28 @@ def upsert_paper(conn: sqlite3.Connection, paper: dict) -> None:
             openalex_topics = COALESCE(excluded.openalex_topics, openalex_topics),
             cited_by_count  = COALESCE(excluded.cited_by_count, cited_by_count),
             fetched_at      = excluded.fetched_at
-    """, {
-        "zotero_key":      paper["zotero_key"],
-        "openalex_id":     paper.get("openalex_id"),
-        "doi":             paper.get("doi"),
-        "url":             paper.get("url"),
-        "title":           paper["title"],
-        "abstract":        paper.get("abstract"),
-        "year":            paper.get("year"),
-        "domain_tag":      paper.get("domain_tag"),
-        "content_tags":    json.dumps(paper["content_tags"]) if "content_tags" in paper else None,
-        "openalex_topics": json.dumps(paper["openalex_topics"]) if "openalex_topics" in paper else None,
-        "cited_by_count":  paper.get("cited_by_count"),
-        "fetched_at":      paper.get("fetched_at"),
-    })
+    """,
+        {
+            "zotero_key": paper["zotero_key"],
+            "openalex_id": paper.get("openalex_id"),
+            "doi": paper.get("doi"),
+            "url": paper.get("url"),
+            "title": paper["title"],
+            "abstract": paper.get("abstract"),
+            "year": paper.get("year"),
+            "domain_tag": paper.get("domain_tag"),
+            "content_tags": (
+                json.dumps(paper["content_tags"]) if "content_tags" in paper else None
+            ),
+            "openalex_topics": (
+                json.dumps(paper["openalex_topics"])
+                if "openalex_topics" in paper
+                else None
+            ),
+            "cited_by_count": paper.get("cited_by_count"),
+            "fetched_at": paper.get("fetched_at"),
+        },
+    )
 
 
 def update_paper_openalex(
@@ -129,20 +138,23 @@ def update_paper_openalex(
     Returns:
         None
     """
-    conn.execute("""
+    conn.execute(
+        """
         UPDATE papers
         SET openalex_id     = ?,
             openalex_topics = ?,
             cited_by_count  = ?,
             fetched_at      = ?
         WHERE zotero_key = ?
-    """, (
-        openalex_id,
-        json.dumps(openalex_topics),
-        cited_by_count,
-        fetched_at,
-        zotero_key,
-    ))
+    """,
+        (
+            openalex_id,
+            json.dumps(openalex_topics),
+            cited_by_count,
+            fetched_at,
+            zotero_key,
+        ),
+    )
 
 
 def get_all_papers(conn: sqlite3.Connection) -> list[dict]:
@@ -169,13 +181,13 @@ def get_papers_missing_openalex(conn: sqlite3.Connection) -> list[dict]:
     Returns:
         list[dict] of paper rows where openalex_id IS NULL.
     """
-    rows = conn.execute(
-        "SELECT * FROM papers WHERE openalex_id IS NULL"
-    ).fetchall()
+    rows = conn.execute("SELECT * FROM papers WHERE openalex_id IS NULL").fetchall()
     return [_deserialize(dict(r)) for r in rows]
 
 
-def upsert_citation_edge(conn: sqlite3.Connection, source_key: str, target_key: str) -> None:
+def upsert_citation_edge(
+    conn: sqlite3.Connection, source_key: str, target_key: str
+) -> None:
     """
     Insert a directed citation edge, silently ignoring duplicates.
 

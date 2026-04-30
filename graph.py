@@ -24,6 +24,7 @@ from config import ALPHA, BETA, CITATION_BONUS, MIN_EDGE_WEIGHT, MIN_JACCARD
 # Graph construction
 # ---------------------------------------------------------------------------
 
+
 def build_graph(
     conn: sqlite3.Connection,
     *,
@@ -99,8 +100,10 @@ def build_graph(
             G[source_key][target_key]["citation"] = True
         else:
             G.add_edge(
-                source_key, target_key,
-                tag_weight=0.0, citation=True,
+                source_key,
+                target_key,
+                tag_weight=0.0,
+                citation=True,
                 weight=citation_w,
             )
 
@@ -143,9 +146,7 @@ def graph_stats(G: nx.Graph) -> dict:
         "n_edges": G.number_of_edges(),
         "n_communities": len(communities),
         "top_tags": top_tags,
-        "citation_edges": sum(
-            1 for _, _, d in G.edges(data=True) if d.get("citation")
-        ),
+        "citation_edges": sum(1 for _, _, d in G.edges(data=True) if d.get("citation")),
     }
 
 
@@ -225,7 +226,9 @@ def render_pyvis(
             if citation
             else f"rgba(200,200,200,{min(weight, 1.0):.2f})"
         )
-        net.add_edge(u, v, color=color, width=max(1, weight * 4), title=f"weight={weight:.2f}")
+        net.add_edge(
+            u, v, color=color, width=max(1, weight * 4), title=f"weight={weight:.2f}"
+        )
 
     net.save_graph(str(output_path))
     return output_path
@@ -234,6 +237,7 @@ def render_pyvis(
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _jaccard(a: frozenset, b: frozenset) -> float:
     """
@@ -318,7 +322,8 @@ def _apply_filters(
     if tag_query:
         q = tag_query.lower()
         out = [
-            p for p in out
+            p
+            for p in out
             if any(q in t for t in (p.get("content_tags") or []))
             or q in (p.get("domain_tag") or "").lower()
         ]

@@ -18,8 +18,8 @@ from pyzotero import zotero
 
 from cache import (
     commit,
-    get_papers_missing_openalex,
     get_all_papers,
+    get_papers_missing_openalex,
     set_meta,
     update_paper_openalex,
     upsert_citation_edge,
@@ -55,6 +55,7 @@ _ARXIV_ID_RE = re.compile(r"arxiv\.org/(?:abs|pdf)/([0-9]{4}\.[0-9]+)", re.IGNOR
 # ---------------------------------------------------------------------------
 # Stage 1 — Zotero
 # ---------------------------------------------------------------------------
+
 
 def sync_zotero(conn: sqlite3.Connection, *, verbose: bool = True) -> int:
     """
@@ -93,17 +94,20 @@ def sync_zotero(conn: sqlite3.Connection, *, verbose: bool = True) -> int:
         key = item["key"]
         domain_tag, content_tags = _parse_tags(data.get("tags", []))
 
-        upsert_paper(conn, {
-            "zotero_key":   key,
-            "title":        title,
-            "abstract":     data.get("abstractNote") or None,
-            "doi":          _clean_doi(data.get("DOI")),
-            "url":          data.get("url") or None,
-            "year":         _parse_year(data.get("date")),
-            "domain_tag":   domain_tag,
-            "content_tags": content_tags,
-            "fetched_at":   now,
-        })
+        upsert_paper(
+            conn,
+            {
+                "zotero_key": key,
+                "title": title,
+                "abstract": data.get("abstractNote") or None,
+                "doi": _clean_doi(data.get("DOI")),
+                "url": data.get("url") or None,
+                "year": _parse_year(data.get("date")),
+                "domain_tag": domain_tag,
+                "content_tags": content_tags,
+                "fetched_at": now,
+            },
+        )
         count += 1
 
     commit(conn)
@@ -173,6 +177,7 @@ def _clean_doi(doi: str | None) -> str | None:
 # Stage 2 — OpenAlex
 # ---------------------------------------------------------------------------
 
+
 def sync_openalex(conn: sqlite3.Connection, *, verbose: bool = True) -> int:
     """
     Enrich cached papers with OpenAlex metadata and build in-library citation edges.
@@ -226,7 +231,10 @@ async def _sync_openalex_async(conn: sqlite3.Connection, *, verbose: bool) -> in
         print(f"  {len(no_doi)} papers have no DOI and will remain unmatched for now")
 
     dois = list(doi_map.keys())
-    batches = [dois[i:i + OPENALEX_BATCH_SIZE] for i in range(0, len(dois), OPENALEX_BATCH_SIZE)]
+    batches = [
+        dois[i : i + OPENALEX_BATCH_SIZE]
+        for i in range(0, len(dois), OPENALEX_BATCH_SIZE)
+    ]
 
     sem = asyncio.Semaphore(OPENALEX_CONCURRENCY)
     matched = 0
@@ -275,9 +283,7 @@ async def _sync_openalex_async(conn: sqlite3.Connection, *, verbose: bool) -> in
     # Build in-library citation edges
     all_papers = get_all_papers(conn)
     oa_id_to_key = {
-        p["openalex_id"]: p["zotero_key"]
-        for p in all_papers
-        if p.get("openalex_id")
+        p["openalex_id"]: p["zotero_key"] for p in all_papers if p.get("openalex_id")
     }
 
     edge_count = 0

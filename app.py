@@ -147,9 +147,11 @@ if "selected_key" not in st.session_state:
 # DB connection (cached across reruns)
 # ---------------------------------------------------------------------------
 
+
 @st.cache_resource
 def get_conn() -> sqlite3.Connection:
     return init_db(DB_PATH)
+
 
 conn = get_conn()
 
@@ -171,6 +173,7 @@ with st.sidebar:
 
     if sync_zotero_btn or sync_all_btn:
         from fetcher import sync_openalex, sync_zotero
+
         with st.spinner("Syncing Zotero…"):
             n = sync_zotero(conn, verbose=False)
         st.success(f"Zotero: {n} items synced")
@@ -189,9 +192,9 @@ with st.sidebar:
 
     # Build filter option ranges from the current cache
     all_domains = sorted({p["domain_tag"] for p in papers if p.get("domain_tag")})
-    all_years   = [p["year"] for p in papers if p.get("year")]
-    year_lo     = min(all_years) if all_years else 2000
-    year_hi     = max(all_years) if all_years else 2024
+    all_years = [p["year"] for p in papers if p.get("year")]
+    year_lo = min(all_years) if all_years else 2000
+    year_hi = max(all_years) if all_years else 2024
 
     # Filters
     st.divider()
