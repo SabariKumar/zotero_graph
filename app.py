@@ -9,9 +9,9 @@ import sqlite3
 import streamlit as st
 from streamlit_javascript import st_javascript
 
-from cache import get_all_papers, init_db
-from config import DB_PATH, MIN_EDGE_WEIGHT
-from graph import build_graph, graph_stats, render_pyvis
+from zotero_graph.cache import get_all_papers, init_db
+from zotero_graph.config import DB_PATH, MIN_EDGE_WEIGHT
+from zotero_graph.graph import build_graph, graph_stats, render_pyvis
 
 # ---------------------------------------------------------------------------
 # Page config (must be first Streamlit call)
@@ -172,7 +172,7 @@ with st.sidebar:
     sync_all_btn = col_oa.button("Sync All", use_container_width=True, type="primary")
 
     if sync_zotero_btn or sync_all_btn:
-        from fetcher import sync_openalex, sync_zotero
+        from zotero_graph.fetcher import sync_openalex, sync_zotero
 
         with st.spinner("Syncing Zotero…"):
             n = sync_zotero(conn, verbose=False)

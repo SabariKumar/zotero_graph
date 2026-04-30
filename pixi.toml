@@ -4,7 +4,7 @@ channels = ["conda-forge"]
 platforms = ["osx-arm64"]
 
 [tasks]
-start = "streamlit run app.py"
+start = "PYTHONPATH=src streamlit run app.py"
 test = "pytest tests/ -v"
 
 [dependencies]

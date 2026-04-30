@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from cache import (
+from zotero_graph.cache import (
     _deserialize,
     commit,
     get_all_citation_edges,

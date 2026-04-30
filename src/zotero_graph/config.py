@@ -25,7 +25,8 @@ OPENALEX_CONCURRENCY: int = 5  # max simultaneous async requests
 OPENALEX_BATCH_DELAY: float = 0.1  # seconds of sleep inside each semaphore slot
 
 # --- Cache ---
-DB_PATH: Path = Path(__file__).parent / "cache.db"
+# Resolve two levels up from src/zotero_graph/ to reach the project root
+DB_PATH: Path = Path(__file__).parents[2] / "cache.db"
 
 # --- Graph tuning ---
 MIN_JACCARD: float = 0.15  # minimum tag-Jaccard to emit a semantic edge

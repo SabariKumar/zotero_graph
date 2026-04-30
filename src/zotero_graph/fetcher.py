@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 import httpx
 from pyzotero import zotero
 
-from cache import (
+from zotero_graph.cache import (
     commit,
     get_all_papers,
     get_papers_missing_openalex,
@@ -25,7 +25,7 @@ from cache import (
     upsert_citation_edge,
     upsert_paper,
 )
-from config import (
+from zotero_graph.config import (
     OPENALEX_BATCH_DELAY,
     OPENALEX_BATCH_SIZE,
     OPENALEX_CONCURRENCY,

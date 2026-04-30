@@ -17,8 +17,14 @@ import matplotlib.colors as mcolors
 import networkx as nx
 from pyvis.network import Network
 
-from cache import get_all_citation_edges, get_all_papers
-from config import ALPHA, BETA, CITATION_BONUS, MIN_EDGE_WEIGHT, MIN_JACCARD
+from zotero_graph.cache import get_all_citation_edges, get_all_papers
+from zotero_graph.config import (
+    ALPHA,
+    BETA,
+    CITATION_BONUS,
+    MIN_EDGE_WEIGHT,
+    MIN_JACCARD,
+)
 
 # ---------------------------------------------------------------------------
 # Graph construction

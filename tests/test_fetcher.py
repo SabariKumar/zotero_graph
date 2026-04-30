@@ -13,8 +13,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from cache import commit, get_all_citation_edges, get_all_papers, init_db, upsert_paper
-from fetcher import (
+from zotero_graph.cache import (
+    commit,
+    get_all_citation_edges,
+    get_all_papers,
+    init_db,
+    upsert_paper,
+)
+from zotero_graph.fetcher import (
     _arxiv_doi_from_url,
     _clean_doi,
     _fetch_openalex_batch,
@@ -288,7 +294,7 @@ class TestSyncOpenalexAsync:
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("fetcher.httpx.AsyncClient", return_value=mock_client):
+        with patch("zotero_graph.fetcher.httpx.AsyncClient", return_value=mock_client):
             matched = await _sync_openalex_async(conn, verbose=False)
 
         assert matched == 2
@@ -302,7 +308,7 @@ class TestSyncOpenalexAsync:
 
     async def test_skips_when_no_missing_papers(self, conn):
         """If all papers already have openalex_id, returns 0 without calling API."""
-        from cache import update_paper_openalex
+        from zotero_graph.cache import update_paper_openalex
 
         upsert_paper(
             conn, {"zotero_key": "A", "title": "A", "fetched_at": "2026-04-30"}
@@ -318,7 +324,7 @@ class TestSyncOpenalexAsync:
         )
         commit(conn)
 
-        with patch("fetcher.httpx.AsyncClient") as mock_cls:
+        with patch("zotero_graph.fetcher.httpx.AsyncClient") as mock_cls:
             matched = await _sync_openalex_async(conn, verbose=False)
 
         mock_cls.assert_not_called()

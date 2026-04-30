@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from cache import commit, init_db, upsert_citation_edge, upsert_paper
-from graph import (
+from zotero_graph.cache import commit, init_db, upsert_citation_edge, upsert_paper
+from zotero_graph.graph import (
     _apply_filters,
     _jaccard,
     _node_size,
